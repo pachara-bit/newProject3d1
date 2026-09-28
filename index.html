@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ห้องไม้ 10x10</title>
+<style>
+  :root{
+    --bg:#1a130d;
+    --panel:rgba(20,14,9,0.72);
+    --text:#f1e6d8;
+    --accent:#d98e4a;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif;}
+  #canvas-wrap{position:fixed;inset:0;}
+  canvas{display:block;}
+  #hud{
+    position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    padding:18px 20px;pointer-events:none;
+  }
+  #title{
+    color:var(--text);
+    background:var(--panel);
+    padding:10px 16px;border-radius:6px;
+    font-size:15px;letter-spacing:.02em;
+    pointer-events:auto;
+    border:1px solid rgba(217,142,74,0.35);
+  }
+  #title b{color:var(--accent);font-weight:600;}
+  #hint{
+    color:var(--text);opacity:.75;
+    background:var(--panel);
+    padding:10px 14px;border-radius:6px;
+    font-size:12.5px;line-height:1.5;text-align:right;
+    pointer-events:auto;
+    border:1px solid rgba(217,142,74,0.25);
+  }
+  #loading{
+    position:fixed;inset:0;background:var(--bg);color:var(--text);
+    display:flex;align-items:center;justify-content:center;
+    font-size:14px;letter-spacing:.05em;z-index:10;
+    transition:opacity .5s ease;
+  }
+</style>
+</head>
+<body>
+<div id="loading">กำลังสร้างห้องไม้…</div>
+<div id="canvas-wrap"></div>
+<div id="hud">
+  <div id="title">ห้องไม้ <b>10 × 10</b> หน่วย</div>
+  <div id="hint">ลากเมาส์เพื่อหมุนมุมมอง<br>เลื่อนล้อเมาส์เพื่อซูม</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function(){
+  const ROOM = 10;       // ความกว้าง x ความลึก
+  const HEIGHT = 4.2;    // ความสูงฝ้าเพดาน
+
+  const wrap = document.getElementById('canvas-wrap');
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0e0906);
+  scene.fog = new THREE.Fog(0x0e0906, 8, 16);
+
+  const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 100);
+  camera.position.set(3.2, 1.6, 3.6);
+
+  const renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  wrap.appendChild(renderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, HEIGHT*0.35, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 1.2;
+  controls.maxDistance = ROOM*0.62;
+  controls.maxPolarAngle = Math.PI*0.92;
+  controls.update();
+
+  // ---------- procedural wood texture ----------
+  function woodTexture({base=[120,74,38], grain=[70,40,18], plank=true, size=512}={}){
+    const c = document.createElement('canvas'); c.width=c.height=size;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = `rgb(${base.join(',')})`;
+    ctx.fillRect(0,0,size,size);
+    // grain streaks
+    for(let i=0;i<220;i++){
+      const y = Math.random()*size;
+      const w = 1+Math.random()*2.5;
+      const shade = 0.55+Math.random()*0.5;
+      ctx.strokeStyle = `rgba(${grain[0]*shade},${grain[1]*shade},${grain[2]*shade},${0.15+Math.random()*0.25})`;
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      let cx = size*0.5, cy = y + (Math.random()-0.5)*40;
+      ctx.quadraticCurveTo(cx, cy, size, y+(Math.random()-0.5)*30);
+      ctx.stroke();
+    }
+    // subtle knots
+    for(let i=0;i<4;i++){
+      const x=Math.random()*size, y=Math.random()*size, r=6+Math.random()*10;
+      const g = ctx.createRadialGradient(x,y,0,x,y,r);
+      g.addColorStop(0, `rgba(${grain[0]*0.4},${grain[1]*0.4},${grain[2]*0.4},0.6)`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    }
+    if(plank){
+      ctx.strokeStyle = 'rgba(20,10,4,0.5)';
+      ctx.lineWidth = 3;
+      const rows = 4;
+      for(let i=1;i<rows;i++){
+        const y = size/rows*i;
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(size,y); ctx.stroke();
+      }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    return tex;
+  }
+
+  const floorTex = woodTexture({base:[104,64,34], grain:[60,32,14], plank:true});
+  floorTex.repeat.set(ROOM/2.2, ROOM/2.2);
+  const wallTex = woodTexture({base:[132,88,50], grain:[80,48,22], plank:true});
+  wallTex.repeat.set(ROOM/3, HEIGHT/1.4);
+  const ceilTex = woodTexture({base:[90,56,30], grain:[55,30,14], plank:false});
+  ceilTex.repeat.set(ROOM/3, ROOM/3);
+
+  const floorMat = new THREE.MeshStandardMaterial({map:floorTex, roughness:0.85, metalness:0.02});
+  const wallMat  = new THREE.MeshStandardMaterial({map:wallTex,  roughness:0.9,  metalness:0.02});
+  const ceilMat  = new THREE.MeshStandardMaterial({map:ceilTex,  roughness:0.95, metalness:0.0});
+
+  // ---------- room geometry ----------
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM, ROOM), floorMat);
+  floor.rotation.x = -Math.PI/2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM, ROOM), ceilMat);
+  ceiling.rotation.x = Math.PI/2;
+  ceiling.position.y = HEIGHT;
+  scene.add(ceiling);
+
+  const half = ROOM/2;
+  const wallDefs = [
+    {pos:[0,HEIGHT/2,-half], rot:[0,0,0]},
+    {pos:[0,HEIGHT/2, half], rot:[0,Math.PI,0]},
+    {pos:[-half,HEIGHT/2,0], rot:[0,Math.PI/2,0]},
+    {pos:[ half,HEIGHT/2,0], rot:[0,-Math.PI/2,0]},
+  ];
+  wallDefs.forEach(w=>{
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM, HEIGHT), wallMat);
+    wall.position.set(...w.pos);
+    wall.rotation.set(...w.rot);
+    wall.receiveShadow = true;
+    scene.add(wall);
+  });
+
+  // baseboards for definition
+  const baseMat = new THREE.MeshStandardMaterial({color:0x3a2414, roughness:0.8});
+  wallDefs.forEach(w=>{
+    const bb = new THREE.Mesh(new THREE.BoxGeometry(ROOM, 0.18, 0.05), baseMat);
+    bb.position.set(w.pos[0]*(1-0.05/half||1), 0.09, w.pos[2]*(1-0.05/half||1));
+    bb.rotation.set(...w.rot);
+    scene.add(bb);
+  });
+
+  // ---------- lighting ----------
+  scene.add(new THREE.AmbientLight(0xffdcb0, 0.35));
+
+  const lamp = new THREE.PointLight(0xffdcae, 1.3, ROOM*1.3, 2);
+  lamp.position.set(0, HEIGHT-0.4, 0);
+  lamp.castShadow = true;
+  lamp.shadow.mapSize.set(1024,1024);
+  scene.add(lamp);
+
+  const lampFixture = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16, 16, 16),
+    new THREE.MeshStandardMaterial({emissive:0xffdcae, emissiveIntensity:1.4, color:0x332211})
+  );
+  lampFixture.position.copy(lamp.position);
+  scene.add(lampFixture);
+
+  const sun = new THREE.DirectionalLight(0xfff2dd, 0.5);
+  sun.position.set(4, HEIGHT+2, 3);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024,1024);
+  sun.shadow.camera.left = -half; sun.shadow.camera.right = half;
+  sun.shadow.camera.top = half; sun.shadow.camera.bottom = -half;
+  scene.add(sun);
+
+  // ---------- simple placeholder furniture to give scale ----------
+  const woodDark = new THREE.MeshStandardMaterial({map:woodTexture({base:[80,50,26],grain:[40,20,8],plank:false}), roughness:0.7});
+  const table = new THREE.Mesh(new THREE.BoxGeometry(1.4,0.75,0.8), woodDark);
+  table.position.set(0,0.375,0);
+  table.castShadow = true; table.receiveShadow = true;
+  scene.add(table);
+  [[-0.6,-0.3],[0.6,-0.3],[-0.6,0.3],[0.6,0.3]].forEach(([x,z])=>{
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.75,0.08), woodDark);
+    leg.position.set(x,0.375,z); table.add(leg);
+    leg.position.y = 0; // relative to table top handled by box center already
+  });
+
+  window.addEventListener('resize', ()=>{
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  document.getElementById('loading').style.display='none';
+
+  function animate(){
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
